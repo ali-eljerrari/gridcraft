@@ -171,6 +171,26 @@ pub fn tokenize_locale(src: &str, locale: crate::FormulaLocale) -> Result<Vec<To
                 i += len;
             }
             '[' => {
+                // An external workbook reference starts with `[Book.xlsx]Sheet!`.
+                // This is distinct from a structured reference because the closing bracket is
+                // followed by a sheet name and `!`. Keep the complete workbook-and-sheet prefix
+                // in one Sheet token so the parser can retain it for display and round-tripping.
+                let mut close = i + 1;
+                while ch(close).is_some_and(|c| c != ']') {
+                    close += 1;
+                }
+                if ch(close) == Some(']') {
+                    let mut end = close + 1;
+                    while ch(end).is_some_and(is_word_char) {
+                        end += 1;
+                    }
+                    if end > close + 1 && ch(end) == Some('!') {
+                        let prefix: String = chars.get(i..end).map(|s| s.iter().map(|c| c.1).collect()).unwrap_or_default();
+                        push(&mut out, Tok::Sheet(prefix, None), end + 1);
+                        i = end + 1;
+                        continue;
+                    }
+                }
                 // Structured reference body: balanced brackets.
                 let mut depth = 0;
                 let mut j = i;

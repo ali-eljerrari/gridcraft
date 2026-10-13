@@ -346,6 +346,14 @@ fn trim_references_adjust() {
 }
 
 #[test]
+fn parses_unquoted_external_workbook_references() {
+    let e = parse("[Source.xlsx]Sheet1!A1").expect("external workbook reference should parse");
+    assert_eq!(print(&e), "'[Source.xlsx]Sheet1'!A1");
+    let e = parse("SUM([Source.xlsx]Sheet1!A1:A3)").expect("external range should parse");
+    assert_eq!(print(&e), "SUM('[Source.xlsx]Sheet1'!A1:A3)");
+}
+
+#[test]
 fn prints_long_flat_chain_without_deep_recursion() {
     // Small stack: a recursive printer overflows long before 20000 levels.
     let handle = std::thread::Builder::new()
