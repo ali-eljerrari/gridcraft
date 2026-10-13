@@ -215,11 +215,12 @@ pub fn installed_among(names: &[String]) -> Vec<String> {
 }
 
 /// The font list a combo box shows: the standard [`crate::ribbon::FONTS`] names first (what Excel
-/// offers, and what we substitute), then every other installed family A–Z. Never blocks: until the
-/// background scan finishes it returns just the standard names.
+/// offers, and what we substitute), then every other installed family A–Z. The picker is an
+/// explicit request for the complete list, so finish the lazy scan here instead of exposing a
+/// transient list that omits families such as Noto while the background scan is still running.
 pub fn families() -> Vec<String> {
     let mut out: Vec<String> = crate::ribbon::FONTS.iter().map(|s| s.to_string()).collect();
-    let Some(cat) = catalog_now() else { return out };
+    let cat = catalog();
     let mut seen: HashSet<String> = out.iter().map(|s| s.to_lowercase()).collect();
     let mut installed: Vec<String> = cat.iter().map(|f| f.family.clone()).collect();
     installed.sort_by_key(|a| a.to_lowercase());

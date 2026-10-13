@@ -10,6 +10,7 @@ use gridcraft_engine::cf::{CfCache, CfLook};
 use gridcraft_engine::core::{CellRef, MAX_COLS, MAX_ROWS, RangeRef, Value, col_to_letters};
 use gridcraft_engine::model::{BorderLine, BorderStyle, Color, HAlign, LineIndex, PatternType, Sheet, Style, Underline, VAlign, Workbook};
 use serde_json::json;
+use unicode_bidi::BidiInfo;
 
 use crate::SheetApp;
 use crate::editor::{EditState, REF_COLORS};
@@ -19,6 +20,29 @@ pub const COL_HEADER_H: f32 = 21.0;
 /// Sheet units are 96-dpi pixels (as in XLSX); on screen one unit is drawn at this many points,
 /// which matches desktop spreadsheet density (a default 20 px row is 16 pt tall).
 pub const DISPLAY_SCALE: f32 = 0.8;
+
+/// Reorder directional runs into their visual order before egui shapes the text. Egui handles
+/// Arabic glyph joining, but it does not apply the Unicode bidirectional algorithm, which leaves
+/// an Arabic sentence's words in logical (reversed) order. Keeping this at the text boundary also
+/// makes the same correction work for wrapped, rotated, and overflowing cells.
+pub(crate) fn visual_text(text: &str) -> String {
+    if text.is_empty() || !text.chars().any(is_rtl) {
+        return text.to_owned();
+    }
+    let info = BidiInfo::new(text, None);
+    let mut out = String::with_capacity(text.len());
+    for paragraph in &info.paragraphs {
+        let line = paragraph.range.clone();
+        out.push_str(&info.reorder_line(paragraph, line));
+    }
+    out
+}
+
+fn is_rtl(c: char) -> bool {
+    matches!(c,
+        '\u{0590}'..='\u{08ff}' | '\u{fb1d}'..='\u{fdff}' | '\u{fe70}'..='\u{fefc}' |
+        '\u{10800}'..='\u{10fff}' | '\u{1e800}'..='\u{1efff}')
+}
 
 /// The zoom percentages a Ctrl+wheel notch steps between: four per doubling (about 20% apart),
 /// so 25, 50, 100, 200 and 400 are on it. Excel steps 15 points a notch instead; the status bar's
@@ -1164,6 +1188,7 @@ pub(crate) fn paint_quadrant(
         if sh.show_formulas && sh.cell(c).is_some_and(|cell| cell.formula.is_some()) {
             text = crate::formula_locale::display(&text, crate::i18n::current(p.ctx()).formula_locale(), wb, si);
         }
+        text = visual_text(&text);
         if text.is_empty() {
             continue;
         }
@@ -3529,6 +3554,21 @@ mod tests {
         let bb = rotated_box(rotated_text_pos(rect, size, angle, HAlign::Center, VAlign::Center, 2.5, 0.0), size, angle);
         assert!((bb.center().y - rect.center().y).abs() < 0.01, "{bb:?} not centred in {rect:?}");
         assert!((bb.center().x - rect.center().x).abs() < 0.01, "{bb:?} not centred in {rect:?}");
+    }
+}
+
+#[cfg(test)]
+mod bidi_tests {
+    use super::visual_text;
+
+    #[test]
+    fn arabic_words_follow_visual_sentence_order() {
+        assert_eq!(visual_text("السلام عليكم"), "مكيلع مالسلا");
+    }
+
+    #[test]
+    fn latin_text_is_unchanged() {
+        assert_eq!(visual_text("Revenue Q1"), "Revenue Q1");
     }
 }
 
