@@ -8,6 +8,21 @@ gridcraft --control 7979            # or GRIDCRAFT_CONTROL_PORT=7979
 
 Then send newline-delimited JSON to `127.0.0.1:7979`. Every request line gets one reply line:
 
+The app creates a fresh authentication token at startup and logs it. The first line on every
+connection must be an `auth` request; connections with an invalid first line are closed without
+executing anything:
+
+```json
+{"id": 0, "method": "auth", "params": {"token": "<token from the app log>"}}
+```
+
+The server replies with `{"ok":true,"result":{"authenticated":true}}`; send normal requests
+only after that handshake.
+
+`gridcraft-cli mcp --connect` and `gridcraft-cli send` read the token from
+`GRIDCRAFT_CONTROL_TOKEN`; clients embedding the MCP crate can use
+`Remote::connect_with_token`.
+
 ```json
 {"id": 1, "method": "engine.execute", "params": {"command": "cell.set", "params": {"cell": "B2", "input": "=SUM(A1:A9)"}}}
 {"id": 1, "ok": true, "result": {"cell": "B2", "value": "45"}}

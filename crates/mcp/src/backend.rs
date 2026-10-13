@@ -25,6 +25,7 @@ const MAX_REPLY: u64 = 256 * 1024 * 1024;
 /// A running GridCraft app, reached through its loopback control port.
 pub struct Remote {
     addr: String,
+    token: Option<String>,
     conn: Option<(BufReader<TcpStream>, TcpStream)>,
     next_id: u64,
 }
@@ -32,7 +33,16 @@ pub struct Remote {
 impl Remote {
     /// Connect to `addr` (`127.0.0.1:7979`), failing fast when nothing is listening.
     pub fn connect(addr: &str) -> std::io::Result<Self> {
-        let mut r = Self { addr: addr.to_string(), conn: None, next_id: 1 };
+        Self::connect_with_optional_token(addr, std::env::var("GRIDCRAFT_CONTROL_TOKEN").ok())
+    }
+
+    /// Connect with the authentication token printed by the desktop app.
+    pub fn connect_with_token(addr: &str, token: impl Into<String>) -> std::io::Result<Self> {
+        Self::connect_with_optional_token(addr, Some(token.into()))
+    }
+
+    fn connect_with_optional_token(addr: &str, token: Option<String>) -> std::io::Result<Self> {
+        let mut r = Self { addr: addr.to_string(), token, conn: None, next_id: 1 };
         r.reconnect()?;
         Ok(r)
     }
@@ -52,6 +62,15 @@ impl Remote {
                     s.set_write_timeout(Some(IO_TIMEOUT)).ok();
                     let read = s.try_clone()?;
                     self.conn = Some((BufReader::new(read), s));
+                    if let Some(token) = &self.token {
+                        let auth = json!({"id": 0, "method": "auth", "params": {"token": token}}).to_string();
+                        let reply = self.roundtrip(&auth)?;
+                        let ok = serde_json::from_str::<Value>(reply.trim()).ok().and_then(|v| v.get("ok").and_then(Value::as_bool)) == Some(true);
+                        if !ok {
+                            self.conn = None;
+                            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "control-channel authentication failed"));
+                        }
+                    }
                     return Ok(());
                 }
                 Err(e) => last = e,
