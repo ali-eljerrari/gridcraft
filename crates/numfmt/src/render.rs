@@ -1,7 +1,7 @@
 //! Rendering a value with a parsed section.
 
 use gridcraft_core::DateSystem;
-use gridcraft_core::date::{MONTHS, WEEKDAYS, datetime_from_serial};
+use gridcraft_core::date::{MONTHS, WEEKDAYS, datetime_from_serial, max_serial};
 
 use crate::FormatLocale;
 use crate::decimal::{decimal_digits, fixed, fixed_from_digits, format_general_fit};
@@ -12,6 +12,7 @@ use crate::parse::{DatePart, Section, Tok};
 pub(crate) struct Out {
     pub text: String,
     pub fill: Option<(char, usize)>,
+    pub zero: bool,
 }
 
 impl Out {
@@ -59,7 +60,7 @@ pub(crate) fn render_general(sec: &Section, v: f64, width: usize, locale: &Forma
 
 /// Renders a date/time. `None` when the serial is outside the supported range.
 pub(crate) fn render_date(sec: &Section, v: f64, sys: DateSystem, locale: &FormatLocale) -> Option<Out> {
-    if !v.is_finite() || !(0.0..2_958_466.0).contains(&v) {
+    if !v.is_finite() || !(0.0..max_serial(sys) as f64 + 1.0).contains(&v) {
         return None;
     }
     let sub_digits = sec.toks.iter().filter_map(|t| if let Tok::Date(DatePart::SubSec(n)) = t { Some(*n) } else { None }).max().unwrap_or(0).min(3);
@@ -234,7 +235,7 @@ fn digit_indices(toks: &[Tok], range: std::ops::Range<usize>) -> Vec<usize> {
 /// Renders a non-negative number through a number section.
 pub(crate) fn render_number(sec: &Section, v: f64, locale: &FormatLocale) -> Out {
     let mut x = v.abs();
-    if sec.percent > 0 {
+    if sec.percent > 0 && !sec.exp {
         x *= 100f64.powi(sec.percent.min(20));
     }
     if sec.scale > 0 {
@@ -250,6 +251,7 @@ pub(crate) fn render_number(sec: &Section, v: f64, locale: &FormatLocale) -> Out
     let mut pieces: Vec<String> = vec![String::new(); n];
     let mut before: Vec<String> = vec![String::new(); n + 1];
     let mut lits: Vec<Option<String>> = Vec::new();
+    let mut zero = false;
     if sec.fraction {
         lits = vec![None; n];
         render_fraction(sec, x, &mut pieces, &mut lits, locale);
@@ -313,6 +315,7 @@ pub(crate) fn render_number(sec: &Section, v: f64, locale: &FormatLocale) -> Out
         } else {
             fixed(x, frac_idx.len())
         };
+        zero = int_s.chars().chain(frac_s.chars()).all(|c| c == '0');
         fill_int(toks, &int_idx, &int_s, sec.thousands, false, &mut pieces, locale);
         if int_idx.is_empty()
             && !int_s.is_empty()
@@ -341,6 +344,7 @@ pub(crate) fn render_number(sec: &Section, v: f64, locale: &FormatLocale) -> Out
             _ => out.push(pieces.get(i).map(String::as_str).unwrap_or("")),
         }
     }
+    out.zero = zero;
     out
 }
 
