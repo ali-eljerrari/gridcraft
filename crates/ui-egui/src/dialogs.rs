@@ -1380,7 +1380,7 @@ fn format_cells(app: &mut SheetApp, ui: &mut egui::Ui, d: &mut Dialog, confirm: 
                 for name in
                     ["General", "Number", "Currency", "Accounting", "Short Date", "Long Date", "Time", "Percentage", "Fraction", "Scientific", "Text"]
                 {
-                    let c = gridcraft_engine::cmd::format::format_code_for(name).to_string();
+                    let c = app.session.regional_formats.code_for(name).to_string();
                     if cols[0].selectable_label(code == c, name).clicked() {
                         code = c;
                     }

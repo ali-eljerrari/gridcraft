@@ -1,6 +1,6 @@
 # Gaps
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-12 · **Change:** minor (direct desktop printing through craft-print) · **Target:** Microsoft Excel (Microsoft 365)
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** minor (system regional formats, #857) · **Target:** Microsoft Excel (Microsoft 365)
 
 Every known shortfall against Excel, one entry each, ranked by user impact (what blocks someone
 using GridCraft for real work first). This is the work list: pick from the top, check the open
@@ -95,10 +95,12 @@ No alpha blockers: every core workflow passes the [alpha gate](roadmap.md#alpha-
 
 ## After beta
 
-### 11. No localization at all (L)
+### 11. Partial localization (L)
 - Ribbon-only catalog in five languages (#31, #104, #82; ~12% of strings each); dialogs, menus and
   messages English; en-US function names and separators (#45); German in PR #163. **Estimate:**
-  100–165 h including #5. [localization-parity.md](localization-parity.md)
+  100–165 h including #5. Desktop regional formats (#857) now supply number/date/currency/
+  accounting defaults and display symbols; web and formula/chart formatting still use invariant
+  settings. [localization-parity.md](localization-parity.md)
 
 ### 12. Get & Transform, external data, data model (F)
 - No Power Query editor, connections, refresh, From Web/database/folder sources, relationships or
@@ -160,6 +162,7 @@ No alpha blockers: every core workflow passes the [alpha gate](roadmap.md#alpha-
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Desktop regional number, date, currency and accounting defaults (#857); invariant XLSX format codes and headless defaults |
 | 2026-10-12 | minor | Desktop File > Print now discovers printers and submits PDF jobs through pinned craft-print with printer choice, copies, duplex and grayscale; browser printing and PDF export remain available. Remaining print parity includes page ranges and driver-specific tray/options UI; physical printer fidelity needs hardware validation. |
 | 2026-10-11 | minor | §6: iterative calculation for circular references landed (Maximum Iterations, Maximum Change) |
 | 2026-10-11 | minor | §15: trim-reference operators (`A1:.E10`, `A1.:E10`, `A1.:.E10`) parse and evaluate |

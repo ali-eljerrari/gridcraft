@@ -1,6 +1,6 @@
 # Architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (created from the code on main; supersedes the local-only plan/architecture.md for committed docs) · **Target:** Microsoft Excel (Microsoft 365)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (system regional formats, #857) · **Target:** Microsoft Excel (Microsoft 365)
 
 How GridCraft is built today. Rules for contributors are in [`AGENTS.md`](../AGENTS.md).
 
@@ -13,7 +13,7 @@ including tests, 2026-10-10.
 | Layer | Crate | Lines | Job |
 |---|---|---|---|
 | L0 | `core` | ~1.3k | Cell and range addresses (A1, R1C1, sheet-qualified; 1,048,576 × 16,384), `Value`, `CellError`, Excel coercion, 1900/1904 date serials, typed-input parsing |
-| L0 | `numfmt` | ~2.1k | Excel number-format codes (sections, conditions, colours, dates, elapsed time, fractions, scientific, fill), General, `TEXT()`; en-US only |
+| L0 | `numfmt` | ~2.1k | Excel number-format codes (sections, conditions, colours, dates, elapsed time, fractions, scientific, fill), General, `TEXT()`; host-supplied display symbols, canonical file/formula syntax |
 | L1 | `formula` | ~1.7k | Tokenizer, parser, AST, printer (A1 and R1C1), reference adjustment for copy, fill and structural edits |
 | L1 | `functions` | ~13.4k | The function library: `FnSpec` registry (name, arity, category, scalar args, signature, description) and pure implementations; automatic array lifting |
 | L2 | `model` | ~2.2k | Workbook, sheets, copy-on-write cell store (64-row bands behind `Arc`), interned styles, names, tables, CF, validation, comments, charts, shapes, images, sparklines, print settings, protection |
@@ -40,6 +40,11 @@ including tests, 2026-10-10.
    `#SPILL!`/cycles. Volatile functions are always dirty.
 4. **Rendering**: the egui grid reads display values (number formats applied in `engine/display.rs`)
    for the visible window only; charts render through `crates/chart` primitives.
+   The desktop reads regional settings once at startup (`apps/gridcraft/src/regional.rs`),
+   supplies named-format defaults through `Session::regional_formats`, and installs numeric/
+   monetary display symbols in `engine/display.rs`. Format Cells and the ribbon share those
+   defaults. Headless sessions and the web retain invariant defaults; workbook codes remain
+   canonical, with explicit currency symbols and date ordering saved in XLSX.
 5. **Files**: `engine/io.rs` sniffs content (XLSX, XLSB, ODS) before trusting the extension and
    dispatches to `crates/xlsx`; imports that lose data return warnings shown to the user.
 
@@ -68,4 +73,5 @@ rpm, tarball), FreeBSD, and web (WASM; WebGPU or WebGL2). Release workflows in
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Desktop regional number, date, currency and accounting defaults (#857); invariant XLSX format codes and headless defaults |
 | 2026-10-10 | major | Created from the code on main: crates, layers, data flow, agent control, known gaps |
