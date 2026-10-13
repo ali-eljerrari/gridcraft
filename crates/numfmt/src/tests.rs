@@ -582,3 +582,18 @@ fn decimal_digits_keeps_fifteen_digits_and_truncates_a_tie() {
     let (d, e) = decimal_digits(999999999999999.6);
     assert_eq!((d, e), ([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 15));
 }
+
+#[test]
+fn regional_symbols_preserve_literals_and_fill_offsets() {
+    let locale = FormatLocale { decimal: ",".into(), thousands: "\u{202f}".into(), ..Default::default() };
+    let code = "\"EUR.\"* #,##0.00\" literal, .\"";
+    let formatted = format_value_localized(&Value::Number(1234.5), &NumberFormat::parse(code), S, &locale);
+    assert_eq!(formatted.text, "EUR.1\u{202f}234,50 literal, .");
+    assert_eq!(formatted.fill, Some((' ', 4)));
+    assert_eq!(format_value_localized(&Value::Number(1.5), &NumberFormat::general(), S, &locale).text, "1,5");
+    assert_eq!(format_value_localized(&Value::from("text. ,"), &NumberFormat::parse("@"), S, &locale).text, "text. ,");
+    let indian = FormatLocale { grouping: vec![3, 2], ..Default::default() };
+    assert_eq!(format_value_localized(&Value::Number(12345678.0), &NumberFormat::parse("#,##0"), S, &indian).text, "1,23,45,678");
+    // File/formula-facing formatting remains canonical.
+    assert_eq!(f("#,##0.00", 1234.5), "1,234.50");
+}

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use gridcraft_core::{CellRef, RangeRef, Value};
 use gridcraft_model::{Sheet, Workbook};
-use gridcraft_numfmt::{Formatted, NumberFormat, format_value};
+use gridcraft_numfmt::{FormatKind, FormatLocale, Formatted, NumberFormat, format_value_localized};
 
 /// Parsed number formats are cached by code.
 fn parsed(code: &str) -> NumberFormat {
@@ -26,9 +26,31 @@ pub fn number_format(code: &str) -> NumberFormat {
     parsed(code)
 }
 
+static DEFAULT_SYMBOLS: std::sync::LazyLock<FormatLocale> = std::sync::LazyLock::new(FormatLocale::default);
+static HOST_SYMBOLS: std::sync::OnceLock<(FormatLocale, FormatLocale)> = std::sync::OnceLock::new();
+
+/// The desktop installs its host symbols once. CLI, WASM and tests use invariant defaults.
+pub fn set_host_symbols(numbers: FormatLocale, money: FormatLocale) {
+    let _ = HOST_SYMBOLS.set((numbers, money));
+}
+
+/// General adjusted for the column width, using the same symbols as other cell displays.
+pub fn general_fit(value: f64, width: usize) -> Option<String> {
+    gridcraft_numfmt::format_general_fit(value, width).map(|text| match HOST_SYMBOLS.get() {
+        Some((numbers, _)) if numbers.decimal != "." => text.replace('.', &numbers.decimal),
+        Some(_) => text,
+        None => text,
+    })
+}
+
 /// Formats a value with a format code.
 pub fn format(v: &Value, code: &str, wb: &Workbook) -> Formatted {
-    format_value(v, &parsed(code), wb.date_system)
+    let fmt = parsed(code);
+    let symbols = HOST_SYMBOLS
+        .get()
+        .map(|(numbers, money)| if matches!(fmt.kind(), FormatKind::Currency | FormatKind::Accounting) { money } else { numbers })
+        .unwrap_or(&DEFAULT_SYMBOLS);
+    format_value_localized(v, &fmt, wb.date_system, symbols)
 }
 
 /// What the cell editor and the formula bar start from. Same as `Cell::input_text`, except that a

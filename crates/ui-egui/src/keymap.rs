@@ -75,7 +75,7 @@ pub fn lookup(key: Key, physical: Option<Key>, m: Modifiers, mac: bool) -> Optio
         Num1 if ctrl && s => number_format("#,##0.00"),
         Num2 if ctrl && s => number_format("h:mm AM/PM"),
         Num3 if ctrl && s => number_format("d-mmm-yy"),
-        Num4 if ctrl && s => number_format("$#,##0.00_);($#,##0.00)"),
+        Num4 if ctrl && s => Shortcut::Run("home.numberFormat", json!({"format": "Currency"})),
         Num5 if ctrl && s => number_format("0%"),
         Num6 if ctrl && s => number_format("0.00E+00"),
         Num7 if ctrl && s => borders("outside"),
@@ -195,7 +195,13 @@ pub(crate) fn dispatch(app: &mut SheetApp, ctx: &egui::Context, key: Key, physic
             } else {
                 app.session
                     .active()
-                    .and_then(|d| sh.value_ref(above).map(|v| gridcraft_engine::display::format(v, "General", &d.wb).text))
+                    // This becomes editor input: keep canonical decimals even when the grid uses
+                    // a decimal comma (otherwise English entry would interpret it as grouping).
+                    .and_then(|d| {
+                        sh.value_ref(above).map(|v| {
+                            gridcraft_engine::numfmt::format_value(v, &gridcraft_engine::numfmt::NumberFormat::general(), d.wb.date_system).text
+                        })
+                    })
                     .unwrap_or_default()
             };
             edit_with(app, text);

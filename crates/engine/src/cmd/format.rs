@@ -133,9 +133,15 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             number_format
         ),
-        cmd!("home.accounting", "Accounting Number Format", ["Home", "Number"], None, "{range?, symbol?: \"$\"}", has_doc, |s, p| set_fmt(
-            s, p, ACCOUNTING
-        )),
+        cmd!(
+            "home.accounting",
+            "Accounting Number Format",
+            ["Home", "Number"],
+            None,
+            "{range?, symbol?: string (defaults to host currency)}",
+            has_doc,
+            accounting_format
+        ),
         cmd!("home.percent", "Percent Style", ["Home", "Number"], Some("Ctrl+Shift+%"), "{range?}", has_doc, |s, p| set_fmt(s, p, "0%")),
         cmd!("home.comma", "Comma Style", ["Home", "Number"], None, "{range?}", has_doc, |s, p| set_fmt(s, p, COMMA)),
         cmd!("home.increaseDecimal", "Increase Decimal", ["Home", "Number"], None, "{range?}", has_doc, |s, p| decimals(s, p, 1)),
@@ -638,8 +644,21 @@ pub fn format_code_for(name: &str) -> &str {
 fn number_format(s: &mut Session, p: &Json) -> Result<Json> {
     let code = str_param(p, "code")
         .map(str::to_string)
-        .or_else(|| str_param(p, "format").map(|f| format_code_for(f).to_string()))
+        .or_else(|| str_param(p, "format").map(|f| s.regional_formats.code_for(f).to_string()))
         .ok_or_else(|| bad("home.numberFormat", "missing `format` or `code`"))?;
+    set_fmt(s, p, &code)
+}
+
+fn accounting_format(s: &mut Session, p: &Json) -> Result<Json> {
+    let code = if let Some(symbol) = str_param(p, "symbol") {
+        if symbol.len() > 64 || symbol.contains(['\n', '\r']) {
+            return Err(bad("home.accounting", "symbol must be at most 64 bytes without line breaks"));
+        }
+        let literal: String = symbol.chars().map(|c| format!("\\{c}")).collect();
+        ACCOUNTING.replace("\"$\"", &literal)
+    } else {
+        s.regional_formats.accounting.clone()
+    };
     set_fmt(s, p, &code)
 }
 
@@ -897,13 +916,19 @@ pub const CELL_STYLE_NAMES: &[&str] = &[
 fn cell_style(s: &mut Session, p: &Json) -> Result<Json> {
     let name = str_param(p, "name").unwrap_or("Normal").to_string();
     let d = s.doc()?;
-    let style =
-        d.wb.cell_styles
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(&name))
-            .map(|(_, s)| s.clone())
-            .or_else(|| builtin_cell_style(&name, &d.wb.theme));
-    let Some(style) = style else { return Err(bad("home.cellStyle", format!("unknown cell style `{name}`"))) };
+    let saved_style = d.wb.cell_styles.iter().find(|(n, _)| n.eq_ignore_ascii_case(&name));
+    let style = saved_style.map(|(_, s)| s.clone()).or_else(|| builtin_cell_style(&name, &d.wb.theme));
+    let Some(mut style) = style else { return Err(bad("home.cellStyle", format!("unknown cell style `{name}`"))) };
+    if saved_style.is_none() && matches!(name.as_str(), "Currency" | "Currency [0]") {
+        let mut code = s.regional_formats.accounting.clone();
+        if name == "Currency [0]" {
+            for _ in 0..9 {
+                code = adjust_decimals(&code, &gridcraft_core::Value::Number(0.0), -1);
+            }
+            code = code.replace("\"-\"??", "\"-\"");
+        }
+        style.num_fmt = NumFmt::new(&code);
+    }
     // Number-format styles only change the number format.
     let only_fmt = matches!(name.as_str(), "Comma" | "Comma [0]" | "Currency" | "Currency [0]" | "Percent");
     apply_style(s, p, move |st| {
@@ -1111,6 +1136,45 @@ fn hide(s: &mut Session, p: &Json, rows: bool, on: bool) -> Result<Json> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_formats_use_session_regional_defaults() {
+        let mut s = Session::new();
+        s.new_workbook();
+        s.regional_formats.currency = "\"£\"#,##0.00".into();
+        s.regional_formats.accounting = "_(\"£\"* #,##0.00_);_(\"£\"* \\( #,##0.00\\);_(\"£\"* \"-\"??_);_(@_)".into();
+        s.regional_formats.short_date = "dd/mm/yyyy".into();
+        s.regional_formats.number = "#,##0.000".into();
+        s.regional_formats.long_date = "dddd, d mmmm yyyy".into();
+        s.regional_formats.time = "hh:mm:ss".into();
+        s.execute("cell.set", json!({"cell":"A1","input":"1234.5"})).unwrap();
+        for (command, params, expected) in [
+            ("home.numberFormat", json!({"format":"Number"}), s.regional_formats.number.clone()),
+            ("home.numberFormat", json!({"format":"Currency"}), s.regional_formats.currency.clone()),
+            ("home.numberFormat", json!({"format":"Accounting"}), s.regional_formats.accounting.clone()),
+            ("home.numberFormat", json!({"format":"Long Date"}), s.regional_formats.long_date.clone()),
+            ("home.numberFormat", json!({"format":"Time"}), s.regional_formats.time.clone()),
+            ("home.accounting", json!({}), s.regional_formats.accounting.clone()),
+            ("home.cellStyle", json!({"name":"Currency"}), s.regional_formats.accounting.clone()),
+            ("home.numberFormat", json!({"format":"Short Date"}), s.regional_formats.short_date.clone()),
+            ("home.numberFormat", json!({"code":"\"$\"0.00"}), "\"$\"0.00".into()),
+        ] {
+            s.execute(command, params).unwrap();
+            let wb = &s.doc().unwrap().wb;
+            let sh = wb.active().unwrap();
+            assert_eq!(wb.styles.get(sh.style_id(CellRef::new(0, 0))).num_fmt.as_str(), expected);
+            let bytes = crate::io::save_bytes(wb, "regional.xlsx").unwrap();
+            let (back, _) = crate::io::open_bytes("regional.xlsx", &bytes).unwrap();
+            assert_eq!(back.styles.get(back.active().unwrap().style_id(CellRef::new(0, 0))).num_fmt.as_str(), expected);
+            s.execute("edit.undo", json!({})).unwrap();
+            s.execute("edit.redo", json!({})).unwrap();
+            let wb = &s.doc().unwrap().wb;
+            assert_eq!(wb.styles.get(wb.active().unwrap().style_id(CellRef::new(0, 0))).num_fmt.as_str(), expected);
+        }
+        s.execute("home.accounting", json!({"symbol":"€"})).unwrap();
+        assert!(s.doc().unwrap().wb.styles.get(s.doc().unwrap().wb.active().unwrap().style_id(CellRef::new(0, 0))).num_fmt.as_str().contains("\\€"));
+        assert!(s.execute("home.accounting", json!({"symbol":"x".repeat(65)})).is_err());
+    }
 
     #[test]
     fn decimal_steps() {

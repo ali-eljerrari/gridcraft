@@ -1,6 +1,6 @@
 # Localization parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (German ribbon catalog added) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (system regional formats, #857) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
 
 Per-language status against Excel, which ships its UI in dozens of languages (Windows language
 packs cover 100+), with localized function names, argument separators, number and date formats,
@@ -20,8 +20,21 @@ right-to-left sheets and full complex-script support. Part of
 - **About 2,200 user-visible strings** in all (heuristic source scan: ~1,700 UI and command
   strings plus ~500 function descriptions), so each shipped language covers **~12%** (measured
   count / estimated total).
-- **en-US only formulas and formats.** Function names, `,` argument separator, `.` decimal
-  separator, en-US number and date formats (`crates/numfmt` says "en-US only"). Users ask for
+- **Desktop regional formats (#857).** New Number, Currency, Accounting, Short Date, Long Date
+  and Time categories use host settings, including decimal/group separators, currency precision,
+  symbol placement, date ordering and month/day names. Linux/BSD read `locale` categories;
+  Windows reads `Get-Culture` with user overrides; macOS reads AppleLocale and supported ICU
+  number/date preference overrides. Missing providers or unsupported date patterns fall back to
+  invariant defaults. Settings are read once at startup. Custom codes and saved workbook codes
+  retain canonical syntax; headless sessions, web, `TEXT()` and chart formatting remain invariant.
+  Currency styles and the currency keyboard shortcut use the same host default.
+  Native Windows/macOS runtime verification remains outstanding; provider parsing has synthetic
+  regression coverage. Non-Gregorian calendars, eras and localized input outside existing formula
+  entry support remain future work. Provider references: [POSIX locale output](https://man7.org/linux/man-pages/man1/locale.1.html),
+  [Windows user overrides](https://learn.microsoft.com/en-us/dotnet/fundamentals/runtime-libraries/system-globalization-cultureinfo),
+  [ICU symbol identifiers](https://unicode-org.github.io/icu-docs/apidoc/dev/icu4c/unum_8h_source.html).
+- **Formula localization remains partial.** Function names, `,` argument separator, `.` decimal
+  separator, invariant formula/file format syntax (desktop display now uses regional symbols). Users ask for
   localized function names and `;` separators (#45). German with localized numbers and formulas
   is in PR #163 (open).
 - **Script support.** System-font fallback for CJK, Thai and Hebrew landed in #38 (closes #32;
@@ -77,6 +90,7 @@ language (none so far) and of localized function names.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Desktop regional number, date, currency and accounting defaults (#857); invariant XLSX format codes and headless defaults |
 | 2026-10-11 | minor | German ribbon catalog (`i18n/de.rs`, 266 labels, ~12%); `de` locale tags (de-DE, de-AT, de-CH…) resolve to German. PR #163 (localized German formulas/numbers) still open |
 | 2026-10-11 | minor | Sheet Right-to-Left mirrors the grid (#146) |
 | 2026-10-11 | minor | Czech (cs) ribbon table: 266 labels (~12%), menus only |

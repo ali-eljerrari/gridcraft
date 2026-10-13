@@ -51,9 +51,11 @@ const CTRL_SHIFT: Modifiers = Modifiers { shift: true, ..CTRL };
 
 #[test]
 fn ctrl_shift_symbols_apply_number_formats_and_borders() {
-    let mut h = harness(book("A1:B2"));
+    let session = book("A1:B2");
+    let currency = session.regional_formats.currency.clone();
+    let mut h = harness(session);
     key(&mut h, Key::Num4, CTRL_SHIFT);
-    assert_eq!(style(&h, "B2").num_fmt.as_str(), "$#,##0.00_);($#,##0.00)");
+    assert_eq!(style(&h, "B2").num_fmt.as_str(), currency);
     key(&mut h, Key::Num5, CTRL_SHIFT);
     assert_eq!(style(&h, "A1").num_fmt.as_str(), "0%");
     key(&mut h, Key::Backtick, CTRL_SHIFT);

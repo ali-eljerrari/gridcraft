@@ -17,6 +17,7 @@ mod logging;
 #[cfg(target_os = "macos")]
 mod native_menu;
 mod print;
+mod regional;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -275,6 +276,10 @@ fn main() -> eframe::Result<()> {
         }
     }
     let mut session = Session::new();
+    if let Some(settings) = regional::system() {
+        session.regional_formats = settings.formats;
+        gridcraft_engine::display::set_host_symbols(settings.numbers, settings.money);
+    }
     if let Some(s) = &sample
         && let Err(e) = session.execute("file.new", json!({"sample": s}))
     {

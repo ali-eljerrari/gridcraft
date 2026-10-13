@@ -17,6 +17,7 @@ pub mod outline;
 pub mod paper;
 pub mod pivot;
 pub mod pivot_calc;
+pub mod regional;
 pub mod sample;
 pub mod selection;
 pub mod tables;
@@ -228,6 +229,8 @@ pub struct Session {
     active: usize,
     pub clipboard: Option<Clipboard>,
     pub prefs: Prefs,
+    /// Regional defaults for newly applied named number formats.
+    pub regional_formats: regional::RegionalFormats,
     pub mode: Mode,
     /// Commands run so far, without their passwords ([`cmd::journal_params`]).
     pub journal: Vec<(String, Json)>,
