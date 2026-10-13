@@ -10,6 +10,7 @@ use gridcraft_engine::cf::{CfCache, CfLook};
 use gridcraft_engine::core::{CellRef, MAX_COLS, MAX_ROWS, RangeRef, Value, col_to_letters};
 use gridcraft_engine::model::{BorderLine, BorderStyle, Color, HAlign, LineIndex, PatternType, Sheet, Style, Underline, VAlign, Workbook};
 use serde_json::json;
+use unicode_bidi::BidiInfo;
 
 use crate::SheetApp;
 use crate::editor::{EditState, REF_COLORS};
@@ -19,6 +20,29 @@ pub const COL_HEADER_H: f32 = 21.0;
 /// Sheet units are 96-dpi pixels (as in XLSX); on screen one unit is drawn at this many points,
 /// which matches desktop spreadsheet density (a default 20 px row is 16 pt tall).
 pub const DISPLAY_SCALE: f32 = 0.8;
+
+/// Reorder directional runs into their visual order before egui shapes the text. Egui handles
+/// Arabic glyph joining, but it does not apply the Unicode bidirectional algorithm, which leaves
+/// an Arabic sentence's words in logical (reversed) order. Keeping this at the text boundary also
+/// makes the same correction work for wrapped, rotated, and overflowing cells.
+pub(crate) fn visual_text(text: &str) -> String {
+    if text.is_empty() || !text.chars().any(is_rtl) {
+        return text.to_owned();
+    }
+    let info = BidiInfo::new(text, None);
+    let mut out = String::with_capacity(text.len());
+    for paragraph in &info.paragraphs {
+        let line = paragraph.range.clone();
+        out.push_str(&info.reorder_line(paragraph, line));
+    }
+    out
+}
+
+fn is_rtl(c: char) -> bool {
+    matches!(c,
+        '\u{0590}'..='\u{08ff}' | '\u{fb1d}'..='\u{fdff}' | '\u{fe70}'..='\u{fefc}' |
+        '\u{10800}'..='\u{10fff}' | '\u{1e800}'..='\u{1efff}')
+}
 
 /// The zoom percentages a Ctrl+wheel notch steps between: four per doubling (about 20% apart),
 /// so 25, 50, 100, 200 and 400 are on it. Excel steps 15 points a notch instead; the status bar's
@@ -946,6 +970,39 @@ pub(crate) fn cell_text_y(valign: VAlign, rect: Rect, gh: f32, z: f32) -> f32 {
     }
 }
 
+/// Position an in-cell editor using the same alignment as the painted cell text. The editor is
+/// allowed to grow beyond the cell, so centering and right alignment grow toward the left just as
+/// they do in a spreadsheet application.
+pub(crate) fn editor_rect(rect: Rect, size: egui::Vec2, h: HAlign, v: VAlign) -> Rect {
+    let x = match h {
+        HAlign::Center | HAlign::CenterAcross | HAlign::Distributed => rect.center().x - size.x / 2.0,
+        HAlign::Right => rect.right() - size.x,
+        _ => rect.left(),
+    };
+    let y = match v {
+        VAlign::Center | VAlign::Justify | VAlign::Distributed => rect.center().y - size.y / 2.0,
+        VAlign::Bottom => rect.bottom() - size.y,
+        VAlign::Top => rect.top(),
+    };
+    Rect::from_min_size(pos2(x, y), size)
+}
+
+pub(crate) fn editor_halign(h: HAlign) -> egui::Align {
+    match h {
+        HAlign::Center | HAlign::CenterAcross | HAlign::Distributed => egui::Align::Center,
+        HAlign::Right => egui::Align::RIGHT,
+        _ => egui::Align::LEFT,
+    }
+}
+
+pub(crate) fn editor_valign(v: VAlign) -> egui::Align {
+    match v {
+        VAlign::Center | VAlign::Justify | VAlign::Distributed => egui::Align::Center,
+        VAlign::Bottom => egui::Align::BOTTOM,
+        VAlign::Top => egui::Align::TOP,
+    }
+}
+
 /// Where to put a `TextShape` holding a galley of `size` turned by `angle` (egui radians, so
 /// negative for upward text) for it to sit in `rect` per the cell's alignment. egui turns the
 /// galley about `pos`, its top-left corner, so the turned box is placed first and `pos` follows.
@@ -1164,6 +1221,7 @@ pub(crate) fn paint_quadrant(
         if sh.show_formulas && sh.cell(c).is_some_and(|cell| cell.formula.is_some()) {
             text = crate::formula_locale::display(&text, crate::i18n::current(p.ctx()).formula_locale(), wb, si);
         }
+        text = visual_text(&text);
         if text.is_empty() {
             continue;
         }
@@ -2707,8 +2765,8 @@ fn in_cell_editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, sh: &Sheet, 
     let lines = ed.text.lines().count().max(1) as f32 + if ed.text.ends_with('\n') { 1.0 } else { 0.0 };
     let w = (text_w + 14.0).max(rect.width()).min(geo.cells.right() - rect.left());
     let h = (size * 1.3 * lines + 4.0).max(rect.height());
-    // Grows to the left on a right-to-left sheet.
-    let erect = geo.mirror_rect(Rect::from_min_size(rect.min, vec2(w, h)));
+    // Mirror the aligned editor rectangle on a right-to-left sheet.
+    let erect = geo.mirror_rect(editor_rect(rect, vec2(w, h), st.align.h, st.align.v));
     let fill = match st.fill.pattern {
         PatternType::Solid => st.fill.fg.resolve(&wb.theme).map(theme::color32).unwrap_or(Color32::WHITE),
         _ => Color32::WHITE,
@@ -2725,7 +2783,7 @@ fn in_cell_editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, sh: &Sheet, 
     let id = egui::Id::new("gridcraft.cell_editor");
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(erect.shrink2(vec2(2.0, 1.0))));
     child.set_clip_rect(clip);
-    crate::formula_bar::editor_widget(app, &mut child, id, font, false, erect.width() - 4.0);
+    crate::formula_bar::editor_widget(app, &mut child, id, font, false, erect.width() - 4.0, editor_halign(st.align.h), editor_valign(st.align.v));
 }
 
 /// Test the popup itself, not whether the pointer is over any part of the app.
@@ -3462,6 +3520,25 @@ mod tests {
         assert!(y_bottom_ovf >= rect.top());
     }
 
+    #[test]
+    fn editor_rect_grows_away_from_the_aligned_edge() {
+        let cell = Rect::from_min_max(pos2(100.0, 40.0), pos2(200.0, 80.0));
+        let size = vec2(140.0, 60.0);
+
+        let centered = editor_rect(cell, size, HAlign::Center, VAlign::Center);
+        assert_eq!(centered.center(), cell.center());
+
+        let right_bottom = editor_rect(cell, size, HAlign::Right, VAlign::Bottom);
+        assert_eq!(right_bottom.right(), cell.right());
+        assert_eq!(right_bottom.bottom(), cell.bottom());
+        assert!(right_bottom.left() < cell.left());
+        assert!(right_bottom.top() < cell.top());
+
+        let left_top = editor_rect(cell, size, HAlign::Left, VAlign::Top);
+        assert_eq!(left_top.left(), cell.left());
+        assert_eq!(left_top.top(), cell.top());
+    }
+
     /// The screen box of a galley of `size` drawn at `pos` turned by `angle` about `pos`, as egui
     /// draws a rotated `TextShape`.
     fn rotated_box(pos: Pos2, size: egui::Vec2, angle: f32) -> Rect {
@@ -3529,6 +3606,21 @@ mod tests {
         let bb = rotated_box(rotated_text_pos(rect, size, angle, HAlign::Center, VAlign::Center, 2.5, 0.0), size, angle);
         assert!((bb.center().y - rect.center().y).abs() < 0.01, "{bb:?} not centred in {rect:?}");
         assert!((bb.center().x - rect.center().x).abs() < 0.01, "{bb:?} not centred in {rect:?}");
+    }
+}
+
+#[cfg(test)]
+mod bidi_tests {
+    use super::visual_text;
+
+    #[test]
+    fn arabic_words_follow_visual_sentence_order() {
+        assert_eq!(visual_text("السلام عليكم"), "مكيلع مالسلا");
+    }
+
+    #[test]
+    fn latin_text_is_unchanged() {
+        assert_eq!(visual_text("Revenue Q1"), "Revenue Q1");
     }
 }
 

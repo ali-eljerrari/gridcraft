@@ -41,7 +41,7 @@ pub fn show(app: &mut SheetApp, ui: &mut egui::Ui) {
                 let id = egui::Id::new("gridcraft.formula_bar");
                 let editing_here = app.editor.as_ref().is_some_and(|e| e.from_formula_bar);
                 if app.editor.is_some() {
-                    editor_widget(app, &mut child, id, theme::ui_font(13.0), expanded, field.width() - 12.0);
+                    editor_widget(app, &mut child, id, theme::ui_font(13.0), expanded, field.width() - 12.0, egui::Align::LEFT, egui::Align::Center);
                 } else {
                     // Show the active cell's content; clicking starts editing in the bar.
                     let text = active_input(app);
@@ -155,7 +155,16 @@ fn name_box(app: &mut SheetApp, ui: &mut egui::Ui, t: &Tokens) {
 }
 
 /// The text editor used in the cell and in the formula bar (they share `app.editor`).
-pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: FontId, multiline: bool, width: f32) {
+pub fn editor_widget(
+    app: &mut SheetApp,
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    font: FontId,
+    multiline: bool,
+    width: f32,
+    horizontal_align: egui::Align,
+    vertical_align: egui::Align,
+) {
     let Some(mut ed) = app.editor.take() else { return };
     let mine = ed.from_formula_bar == (id == egui::Id::new("gridcraft.formula_bar"));
     // Keys the editor handles itself (before the TextEdit sees them), only where it has focus.
@@ -284,6 +293,8 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         .id(id)
         .frame(egui::Frame::NONE)
         .font(font)
+        .horizontal_align(horizontal_align)
+        .vertical_align(vertical_align)
         .desired_width(width)
         .layouter(&mut layouter)
         .lock_focus(true)
