@@ -8,6 +8,35 @@ use crate::SheetApp;
 use crate::icons::{self, Icon};
 use crate::theme::{self, Tokens};
 
+/// Geometry exposed for interaction tests and control-driven UI inspection.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SheetTabGeometry {
+    pub last_tab: Option<Rect>,
+    pub new_sheet: Option<Rect>,
+    pub splitter: Option<Rect>,
+}
+
+const DEFAULT_TAB_SPLIT: f32 = 0.6;
+const MIN_TAB_SPLIT: f32 = 0.2;
+const MAX_TAB_SPLIT: f32 = 0.9;
+const TAB_SPLITTER_WIDTH: f32 = 8.0;
+const NEW_SHEET_WIDTH: f32 = 32.0;
+const MIN_TAB_STRIP_WIDTH: f32 = 100.0;
+const MIN_SCROLLBAR_WIDTH: f32 = 100.0;
+
+fn tab_split_width(available: f32, split: f32) -> f32 {
+    let minimum = MIN_TAB_STRIP_WIDTH + TAB_SPLITTER_WIDTH + NEW_SHEET_WIDTH;
+    let maximum = (available - TAB_SPLITTER_WIDTH - NEW_SHEET_WIDTH - MIN_SCROLLBAR_WIDTH).max(minimum);
+    (available * split.clamp(MIN_TAB_SPLIT, MAX_TAB_SPLIT)).clamp(minimum, maximum)
+}
+
+fn dragged_tab_split(start: f32, delta_x: f32, available: f32) -> f32 {
+    if available <= 0.0 {
+        return start.clamp(MIN_TAB_SPLIT, MAX_TAB_SPLIT);
+    }
+    (start + delta_x / available).clamp(MIN_TAB_SPLIT, MAX_TAB_SPLIT)
+}
+
 /// The rename field asks for focus only while it has not got it yet. Asking again on the frame it lost focus (Enter or a click elsewhere)
 /// would keep the field focused after it is closed, so the keyboard stayed stuck in the sheet name.
 fn rename_needs_focus(has_focus: bool, lost_focus: bool) -> bool {
@@ -15,6 +44,7 @@ fn rename_needs_focus(has_focus: bool, lost_focus: bool) -> bool {
 }
 
 pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
+    app.tab_geometry = SheetTabGeometry::default();
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("sheet_tabs").exact_size(32.0).frame(egui::Frame::NONE.fill(t.tab_bar)).show(ui, |ui| {
         let rect = ui.max_rect();
@@ -37,10 +67,12 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
                     .filter(|(_, s)| s.visibility == Visibility::Visible)
                     .map(|(i, s)| (i, s.name.clone(), s.tab_color.and_then(|c| c.resolve(&d.wb.theme)), i == d.wb.active_sheet))
                     .collect();
-            // Keep worksheet tabs in their own horizontally scrollable
-            // viewport, leaving room for the New Sheet button and grid scrollbar.
-            let tabs_width = (ui.available_width() - 180.0).max(100.0);
-            ui.allocate_ui_with_layout(vec2(tabs_width, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            // The split is held for this window for the current session. The tab viewport
+            // shrinks to its content, while its parent remains capped at the splitter.
+            let available_width = ui.available_width();
+            let split_width = tab_split_width(available_width, app.tab_split);
+            let tab_content_width = (split_width - NEW_SHEET_WIDTH - TAB_SPLITTER_WIDTH).max(MIN_TAB_STRIP_WIDTH);
+            ui.allocate_ui_with_layout(vec2(split_width, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // Translate vertical wheel movement into horizontal
                 // worksheet-tab scrolling.
                 let wheel_scroll = if ui.rect_contains_pointer(ui.max_rect()) {
@@ -54,7 +86,8 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
 
                 egui::ScrollArea::horizontal()
                     .id_salt("worksheet_tabs_horizontal")
-                    .auto_shrink([false, false])
+                    .max_width(tab_content_width)
+                    .auto_shrink([true, false])
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
                         if wheel_scroll.abs() > 0.0 {
@@ -68,6 +101,7 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
                                 let tw = ui.painter().layout_no_wrap(name.clone(), font.clone(), t.text).size().x;
                                 let w = (tw + 32.0).max(72.0);
                                 let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), Sense::click_and_drag());
+                                app.tab_geometry.last_tab = Some(r);
                                 let r = r.shrink2(vec2(0.0, 1.0));
                                 if active {
                                     ui.painter().rect_filled(Rect::from_min_max(pos2(r.left(), r.top() - 2.0), r.max), 4.0, t.tab_active);
@@ -175,10 +209,38 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
                             }
                         });
                     });
+                // Keep the plus button immediately after the last visible tab when there is
+                // room, while the fixed parent leaves empty space before the splitter.
+                ui.add_space(6.0);
+                let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+                app.tab_geometry.new_sheet = Some(plus_rect);
+                if plus_resp.hovered() {
+                    ui.painter().rect_filled(plus_rect, 4.0, t.hover);
+                }
+                icons::paint(ui.painter(), Rect::from_center_size(plus_rect.center(), vec2(16.0, 16.0)), Icon::Plus, t.text_dim);
+                if plus_resp.on_hover_text("New sheet (⇧F11)").clicked() {
+                    app.run_or_alert("home.insertSheet", json!({}));
+                }
             });
-            ui.add_space(6.0);
-            if crate::widgets::icon_button(ui, Icon::Plus, t.text_dim, "New sheet (⇧F11)", vec2(26.0, 26.0)).clicked() {
-                app.run_or_alert("home.insertSheet", json!({}));
+            let (splitter_rect, splitter) = ui.allocate_exact_size(vec2(TAB_SPLITTER_WIDTH, 30.0), Sense::click_and_drag());
+            app.tab_geometry.splitter = Some(splitter_rect);
+            let grip_x = splitter_rect.center().x;
+            for y in [splitter_rect.center().y - 5.0, splitter_rect.center().y, splitter_rect.center().y + 5.0] {
+                ui.painter().line_segment([pos2(grip_x, y - 1.0), pos2(grip_x, y + 1.0)], Stroke::new(1.0, t.text_dim));
+            }
+            if splitter.hovered() || splitter.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if splitter.drag_started() {
+                app.tab_drag_start = Some(app.tab_split);
+            }
+            if splitter.double_clicked() {
+                app.tab_split = DEFAULT_TAB_SPLIT;
+            } else if splitter.dragged() && available_width > 0.0 {
+                let start = app.tab_drag_start.unwrap_or(app.tab_split);
+                app.tab_split = dragged_tab_split(start, splitter.drag_delta().x, available_width);
+            } else if !splitter.is_pointer_button_down_on() {
+                app.tab_drag_start = None;
             }
             // Horizontal position indicator (a slim scrollbar).
             let avail = ui.available_rect_before_wrap();
@@ -332,12 +394,23 @@ pub fn status_bar(app: &mut SheetApp, ui: &mut Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::rename_needs_focus;
+    use super::{MAX_TAB_SPLIT, MIN_TAB_SPLIT, dragged_tab_split, rename_needs_focus, tab_split_width};
 
     #[test]
     fn rename_field_takes_focus_once_and_lets_go_on_commit() {
         assert!(rename_needs_focus(false, false), "first frame: grab focus");
         assert!(!rename_needs_focus(true, false), "already focused: do not ask again");
         assert!(!rename_needs_focus(false, true), "Enter or click-away: must not take focus back");
+    }
+
+    #[test]
+    fn tab_split_stays_within_resizable_bounds() {
+        let available = 1_200.0;
+        let default_width = tab_split_width(available, 0.6);
+        assert!((default_width - available * 0.6).abs() < f32::EPSILON);
+        assert_eq!(tab_split_width(available, 0.0), tab_split_width(available, MIN_TAB_SPLIT));
+        assert_eq!(tab_split_width(available, 1.0), tab_split_width(available, MAX_TAB_SPLIT));
+        assert!(tab_split_width(260.0, 0.6) < 260.0);
+        assert!((dragged_tab_split(0.6, 120.0, 1_200.0) - 0.7).abs() < f32::EPSILON);
     }
 }

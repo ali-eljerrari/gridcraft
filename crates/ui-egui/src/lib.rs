@@ -246,6 +246,10 @@ pub struct SheetApp {
     pub(crate) shots: control::Shots,
     /// Chart selected on the sheet (id).
     pub selected_chart: Option<u32>,
+    /// Width split between worksheet tabs and the horizontal scrollbar for this window.
+    pub tab_split: f32,
+    pub(crate) tab_drag_start: Option<f32>,
+    pub tab_geometry: tabs::SheetTabGeometry,
     pub started: f64,
 }
 
@@ -287,6 +291,9 @@ impl SheetApp {
             keytips: keytips::KeyTips::default(),
             shots: control::Shots::default(),
             selected_chart: None,
+            tab_split: 0.6,
+            tab_drag_start: None,
+            tab_geometry: tabs::SheetTabGeometry::default(),
             started: now_ms(),
         }
     }

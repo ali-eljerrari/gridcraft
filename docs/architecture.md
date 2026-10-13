@@ -1,6 +1,6 @@
 # Architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (system regional formats, #857) · **Target:** Microsoft Excel (Microsoft 365)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (resizable sheet-tab split, #943) · **Target:** Microsoft Excel (Microsoft 365)
 
 How GridCraft is built today. Rules for contributors are in [`AGENTS.md`](../AGENTS.md).
 
@@ -73,5 +73,6 @@ rpm, tarball), FreeBSD, and web (WASM; WebGPU or WebGL2). Release workflows in
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Sheet tabs size to content and expose a per-window draggable split before the horizontal scrollbar (#943) |
 | 2026-10-13 | minor | Desktop regional number, date, currency and accounting defaults (#857); invariant XLSX format codes and headless defaults |
 | 2026-10-10 | major | Created from the code on main: crates, layers, data flow, agent control, known gaps |
