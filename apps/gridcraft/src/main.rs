@@ -305,7 +305,19 @@ fn main() -> eframe::Result<()> {
     let mut app = SheetApp::new(session, services());
     app.watch_desktop_theme();
     app.after_engine(); // Show warnings from the sample.
-    let control_port = control_port;
+    let control_token = if control_port.is_some() {
+        let mut bytes = [0u8; 32];
+        match getrandom::fill(&mut bytes) {
+            Ok(()) => Some(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+            Err(e) => {
+                log::error!("cannot create control-channel authentication token: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let control_port = control_port.filter(|_| control_token.is_some());
     load_prefs(&mut app);
     // Files named on the command line (a double-click on Windows and Linux) open as File › Open
     // opens them: a password-protected one asks for its password, and errors are shown, not
@@ -357,7 +369,8 @@ fn main() -> eframe::Result<()> {
                 };
                 SheetApp::setup_context_for_language(&cc.egui_ctx, app.ui.dark, app.ui.language);
                 if let Some(port) = control_port {
-                    match control_server::start(port, cc.egui_ctx.clone()) {
+                    let Some(token) = control_token.as_deref() else { return Err("control authentication token unavailable".into()) };
+                    match control_server::start(port, cc.egui_ctx.clone(), token) {
                         Ok(rx) => app.control_rx = Some(rx),
                         Err(e) => log::error!("control channel on port {port}: {e}"),
                     }
